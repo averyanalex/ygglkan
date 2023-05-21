@@ -130,39 +130,13 @@ pub async fn start_internal(
         entry_point: "main",
     });
 
-    let mut pubkeys = vec![[0u8; 32]; batch_size];
+    let mut pubkeys = vec![[0xFFu8; 32]; batch_size];
     let mut new_seeds = vec![[0u8; 32]; batch_size];
-    let mut seeds = vec![[0u8; 32]; batch_size];
+    let mut current_seeds = vec![[0u8; 32]; batch_size];
 
-    let max_leading_zeros = AtomicU32::new(20);
+    let max_leading_zeros = AtomicU32::new(16);
 
-    rand::thread_rng().fill_bytes(&mut seeds.flatten_mut());
     rand::thread_rng().fill_bytes(&mut new_seeds.flatten_mut());
-    let mut encoder =
-        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    {
-        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
-        cpass.set_bind_group(0, &bind_group, &[]);
-        cpass.set_pipeline(&compute_pipeline);
-        cpass.dispatch_workgroups((batch_size / WORKGROUP_SIZE) as u32, 1, 1);
-    }
-    encoder.copy_buffer_to_buffer(
-        &storage_buffer,
-        0,
-        &readback_buffer,
-        0,
-        (batch_size * 32) as wgpu::BufferAddress,
-    );
-    queue.write_buffer(&storage_buffer, 0, seeds.flatten());
-    queue.submit(Some(encoder.finish()));
-    let pubkeys_slice = readback_buffer.slice(..);
-    pubkeys_slice.map_async(wgpu::MapMode::Read, |r| r.unwrap());
-    device.poll(wgpu::Maintain::Wait);
-    let pubkeys_range = pubkeys_slice.get_mapped_range();
-    pubkeys.flatten_mut().copy_from_slice(&pubkeys_range);
-    drop(pubkeys_range);
-    readback_buffer.unmap();
-
     loop {
         let start_now = std::time::Instant::now();
 
@@ -187,7 +161,7 @@ pub async fn start_internal(
 
         pubkeys
             .par_iter()
-            .zip(seeds.par_iter())
+            .zip(current_seeds.par_iter())
             .for_each(|(pk, seed)| {
                 let mut first_bytes = [0u8; 8];
                 first_bytes.copy_from_slice(&pk[..8]);
@@ -207,7 +181,7 @@ pub async fn start_internal(
                 };
             });
 
-        seeds.flatten_mut().copy_from_slice(new_seeds.flatten());
+        std::mem::swap(&mut current_seeds, &mut new_seeds);
         rand::thread_rng().fill_bytes(&mut new_seeds.flatten_mut());
 
         let pubkeys_slice = readback_buffer.slice(..);
