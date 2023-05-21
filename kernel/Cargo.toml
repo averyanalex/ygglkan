@@ -1,0 +1,11 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["dylib", "lib"]
+
+[dependencies]
+crunchy = "0.2.2"
+spirv-std = "0.7.0"

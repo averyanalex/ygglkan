@@ -1,0 +1,22 @@
+[package]
+name = "ygglkan"
+description = "Vulkan-based miner for Yggdrasil addresses"
+version = "0.1.0"
+license = "MIT"
+authors = ["Alexander Averyanov <alex@averyan.ru>"]
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.3.0", features = ["derive"] }
+env_logger = "0.10"
+futures = "0.3"
+hex = "0.4.3"
+rand = "0.8.5"
+rayon = "1.7.0"
+wgpu = { version = "0.16", features = ["spirv", "vulkan-portability"] }
+
+[build-dependencies]
+spirv-builder = "0.7.0"
+
+[profile.release]
+lto = "thin"
