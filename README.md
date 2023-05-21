@@ -4,9 +4,9 @@ Vulkan-based miner for Yggdrasil addresses
 
 ## Basic usage
 
-`shell
+```shell
 cargo build --release && target/release/ygglkan -b 2048 -p
-`
+```
 
 ## Options
 
