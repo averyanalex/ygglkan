@@ -105,7 +105,7 @@ impl U128 {
         }
     }
 
-    pub const fn to_u128(&self) -> u128 {
+    pub const fn _to_u128(&self) -> u128 {
         ((self.higher as u128) << 64) + self.lower as u128
     }
 }

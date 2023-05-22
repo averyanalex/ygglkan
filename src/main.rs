@@ -64,8 +64,14 @@ pub async fn start_internal(
         backends: wgpu::Backends::VULKAN,
         ..Default::default()
     });
+
+    let adapter_options = wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        ..Default::default()
+    };
+
     let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions::default())
+        .request_adapter(&adapter_options)
         .await
         .expect("Failed to find an appropriate adapter");
 
