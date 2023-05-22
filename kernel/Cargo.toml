@@ -1,6 +1,8 @@
 [package]
 name = "kernel"
 version = "0.1.0"
+license = "MIT"
+authors = ["Alexander Averyanov <alex@averyan.ru>"]
 edition = "2021"
 
 [lib]
