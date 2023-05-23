@@ -15,7 +15,7 @@ Pass -r "regex" argument (you can do it multiple times of you want search for mu
 Example:
 
 ```shell
-ygglkan -r "^([0-9a-f]*:){3}0:" -r "^([0-9a-f]*:){2}0:" -r "^([0-9a-f]*:){1}1234:" -r "1334:5678"
+ygglkan -r "" -r "^([0-9a-f]*:){2}:" -r "^([0-9a-f]*:){2}[0-9a-f]{0,2}:0:" -r "^([0-9a-f]*:){3}0:" -r "1234:5678"
 ```
 
 ## Benchmarks

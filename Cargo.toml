@@ -1,8 +1,6 @@
 [workspace]
 resolver = "2"
-members = [
-	"kernel"
-]
+members = ["kernel"]
 
 [package]
 name = "ygglkan"
@@ -14,12 +12,18 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.3.0", features = ["derive"] }
+ed25519-dalek = { version = "2.0.0-rc.2", default-features = false, features = [
+	"std",
+	"fast",
+] }
 env_logger = "0.10"
 futures = "0.3"
 hex = "0.4.3"
 rand = "0.8.5"
 rayon = "1.7.0"
 regex = "1.8.1"
+strum = "0.24.1"
+strum_macros = "0.24.3"
 wgpu = { version = "0.16", features = ["spirv", "vulkan-portability"] }
 
 [build-dependencies]
