@@ -5,13 +5,18 @@ Vulkan-based miner for Yggdrasil addresses
 ## Basic usage
 
 ```shell
-cargo build --release && target/release/ygglkan -b 2048 -p
+cargo run --release -- -b 2048 -s
 ```
 
-## Options
+## Regex matching
 
-- -b, --batch-size <BATCH_SIZE> Block size. Each block has 64 keys [default: 1024]
-- -p, --print-stats Print hashrate stats
+Pass -r "regex" argument (you can do it multiple times of you want search for multiple patterns) to search only for adresses matching given regex.
+
+Example:
+
+```shell
+ygglkan -r "^([0-9a-f]*:){3}0:" -r "^([0-9a-f]*:){2}0:" -r "^([0-9a-f]*:){1}1234:" -r "1334:5678"
+```
 
 ## Benchmarks
 

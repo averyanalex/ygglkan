@@ -6,9 +6,14 @@ use clap::Parser;
 use hex::ToHex;
 use rand::RngCore;
 use rayon::prelude::*;
+use regex::Regex;
 use std::io::Write;
+use wgpu::{BindGroup, Buffer, ComputePipeline, Device, Queue};
 
 const WORKGROUP_SIZE: usize = 64;
+
+type PublicKey = [u8; 32];
+type Seed = [u8; 32];
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -19,11 +24,11 @@ struct Args {
 
     /// Print hashrate stats
     #[arg(short, long, default_value_t = false)]
-    print_stats: bool,
+    stats: bool,
 
     /// Regex pattern to search
     #[arg(short, long)]
-    regex: Option<String>,
+    regexes: Option<Vec<String>>,
 }
 
 fn main() {
@@ -41,11 +46,16 @@ fn main() {
     );
     println!("This may take a while due to shader compilation.");
 
+    let regexes = match args.regexes {
+        Some(r) => r,
+        None => vec![String::from("")],
+    };
+
     futures::executor::block_on(start_internal(
         shader_binary,
         args.batch_size * 64,
-        args.print_stats,
-        args.regex,
+        args.stats,
+        regexes,
     ));
 }
 
@@ -53,12 +63,12 @@ pub async fn start_internal(
     shader_binary: wgpu::ShaderModuleDescriptorSpirV<'static>,
     batch_size: usize,
     print_stats: bool,
-    regex: Option<String>,
+    regexes: Vec<String>,
 ) {
-    let re = match regex {
-        Some(r) => Some(regex::Regex::new(&r).unwrap()),
-        None => None,
-    };
+    let regexes: Vec<_> = regexes
+        .into_iter()
+        .map(|r| Regex::new(&r).unwrap())
+        .collect();
 
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN,
@@ -147,83 +157,37 @@ pub async fn start_internal(
         entry_point: "main",
     });
 
-    let mut pubkeys = vec![[0xFFu8; 32]; batch_size];
-    let mut new_seeds = vec![[0u8; 32]; batch_size];
-    let mut current_seeds = vec![[0u8; 32]; batch_size];
+    let mut pubkeys: Vec<PublicKey> = vec![[0xFFu8; 32]; batch_size];
+    let mut new_seeds: Vec<Seed> = vec![[0u8; 32]; batch_size];
+    let mut current_seeds: Vec<Seed> = vec![[0u8; 32]; batch_size];
 
-    let max_leading_zeros = AtomicU8::new(0);
+    let max_leading_zeros: Vec<AtomicU8> = (0..(regexes.len())).map(|_| AtomicU8::new(0)).collect();
     let mut first_run = true;
 
     rand::thread_rng().fill_bytes(&mut new_seeds.flatten_mut());
     loop {
         let start_now = std::time::Instant::now();
 
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        {
-            let mut cpass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
-            cpass.set_bind_group(0, &bind_group, &[]);
-            cpass.set_pipeline(&compute_pipeline);
-            cpass.dispatch_workgroups((batch_size / WORKGROUP_SIZE) as u32, 1, 1);
-        }
-        encoder.copy_buffer_to_buffer(
+        start_compute_pass(
+            &device,
+            &bind_group,
+            &compute_pipeline,
+            batch_size,
             &storage_buffer,
-            0,
             &readback_buffer,
-            0,
-            (batch_size * 32) as wgpu::BufferAddress,
+            &queue,
+            new_seeds.flatten(),
         );
-        queue.write_buffer(&storage_buffer, 0, new_seeds.flatten());
-        queue.submit(Some(encoder.finish()));
 
         if !first_run {
-            pubkeys
-                .par_iter()
-                .zip(current_seeds.par_iter())
-                .for_each(|(pk, seed)| {
-                    let leading_zeros = leading_zeros_of_pubkey(pk);
-
-                    match &re {
-                        None => {}
-                        Some(re) => {
-                            if max_leading_zeros.load(Ordering::Relaxed) > leading_zeros {
-                                return;
-                            }
-                            if !(re.is_match(&address_for_pubkey(pk).to_string())) {
-                                return;
-                            }
-                        }
-                    }
-
-                    if max_leading_zeros.fetch_max(leading_zeros, Ordering::AcqRel) <= leading_zeros
-                    {
-                        let mut sk = [0u8; 64];
-                        sk[..32].copy_from_slice(seed);
-                        sk[32..].copy_from_slice(pk);
-                        let mut lock = std::io::stdout().lock();
-                        writeln!(lock, "=======================================").unwrap();
-                        writeln!(lock, "PrivateKey: {}", sk.encode_hex::<String>()).unwrap();
-                        writeln!(lock, "PublicKey: {}", pk.encode_hex::<String>()).unwrap();
-                        writeln!(lock, "Address: {}", address_for_pubkey(pk)).unwrap();
-                        writeln!(lock, "Height: {}", leading_zeros).unwrap();
-                        writeln!(lock, "=======================================").unwrap();
-                    };
-                });
+            handle_keypairs(&current_seeds, &pubkeys, &regexes, &max_leading_zeros);
         } else {
             first_run = false;
         }
-
         std::mem::swap(&mut current_seeds, &mut new_seeds);
         rand::thread_rng().fill_bytes(&mut new_seeds.flatten_mut());
 
-        let pubkeys_slice = readback_buffer.slice(..);
-        pubkeys_slice.map_async(wgpu::MapMode::Read, |r| r.unwrap());
-        device.poll(wgpu::Maintain::Wait);
-        let pubkeys_range = pubkeys_slice.get_mapped_range();
-        pubkeys.flatten_mut().copy_from_slice(&pubkeys_range);
-        drop(pubkeys_range);
-        readback_buffer.unmap();
+        read_pubkeys(&device, &readback_buffer, pubkeys.flatten_mut());
 
         if print_stats {
             let time_elapsed = (std::time::Instant::now() - start_now).as_secs_f64();
@@ -231,6 +195,83 @@ pub async fn start_internal(
             println!("Hashrate: {:.2} MH/s", hashrate);
         }
     }
+}
+
+fn handle_keypairs(
+    seeds: &Vec<Seed>,
+    pubkeys: &Vec<PublicKey>,
+    regexes: &Vec<Regex>,
+    max_leading_zeros: &Vec<AtomicU8>,
+) {
+    pubkeys
+        .par_iter()
+        .zip(seeds.par_iter())
+        .for_each(|(pk, seed)| {
+            let leading_zeros = leading_zeros_of_pubkey(pk);
+
+            let str_addr = address_for_pubkey(pk).to_string();
+
+            for (re, mlz) in regexes.iter().zip(max_leading_zeros.iter()) {
+                if mlz.load(Ordering::Relaxed) > leading_zeros {
+                    continue;
+                }
+                if !(re.is_match(&str_addr)) {
+                    continue;
+                }
+
+                if mlz.fetch_max(leading_zeros, Ordering::AcqRel) <= leading_zeros {
+                    let mut sk = [0u8; 64];
+                    sk[..32].copy_from_slice(seed);
+                    sk[32..].copy_from_slice(pk);
+                    let mut lock = std::io::stdout().lock();
+                    writeln!(lock, "=======================================").unwrap();
+                    writeln!(lock, "PrivateKey: {}", sk.encode_hex::<String>()).unwrap();
+                    writeln!(lock, "PublicKey: {}", pk.encode_hex::<String>()).unwrap();
+                    writeln!(lock, "Address: {}", str_addr).unwrap();
+                    writeln!(lock, "Height: {}", leading_zeros).unwrap();
+                    writeln!(lock, "=======================================").unwrap();
+                };
+            }
+        });
+}
+
+fn start_compute_pass(
+    device: &Device,
+    bind_group: &BindGroup,
+    compute_pipeline: &ComputePipeline,
+    batch_size: usize,
+    storage_buffer: &Buffer,
+    readback_buffer: &Buffer,
+    queue: &Queue,
+    seeds: &[u8],
+) {
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    {
+        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+        cpass.set_bind_group(0, &bind_group, &[]);
+        cpass.set_pipeline(&compute_pipeline);
+        cpass.dispatch_workgroups((batch_size / WORKGROUP_SIZE) as u32, 1, 1);
+    }
+    encoder.copy_buffer_to_buffer(
+        &storage_buffer,
+        0,
+        &readback_buffer,
+        0,
+        (batch_size * 32) as wgpu::BufferAddress,
+    );
+    queue.write_buffer(&storage_buffer, 0, seeds);
+    queue.submit(Some(encoder.finish()));
+}
+
+fn read_pubkeys(device: &Device, readback_buffer: &Buffer, pubkeys: &mut [u8]) {
+    let pubkeys_slice = readback_buffer.slice(..);
+    pubkeys_slice.map_async(wgpu::MapMode::Read, |r| r.unwrap());
+    device.poll(wgpu::Maintain::Wait);
+    let pubkeys_range = pubkeys_slice.get_mapped_range();
+    pubkeys.copy_from_slice(&pubkeys_range);
+    drop(pubkeys_range);
+    readback_buffer.unmap();
 }
 
 fn leading_zeros_of_pubkey(pk: &[u8]) -> u8 {
