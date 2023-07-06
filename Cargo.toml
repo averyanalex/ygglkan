@@ -11,8 +11,8 @@ authors = ["Alexander Averyanov <alex@averyan.ru>"]
 edition = "2021"
 
 [dependencies]
-clap = { version = "4.3.0", features = ["derive"] }
-ed25519-dalek = { version = "2.0.0-rc.2", default-features = false, features = [
+clap = { version = "4.3", features = ["derive"] }
+ed25519-dalek = { version = "2.0.0-rc.3", default-features = false, features = [
 	"std",
 	"fast",
 ] }
@@ -21,13 +21,13 @@ futures = "0.3"
 hex = "0.4.3"
 rand = "0.8.5"
 rayon = "1.7.0"
-regex = "1.8.1"
-strum = "0.24.1"
-strum_macros = "0.24.3"
+regex = "1.9.0"
+strum = "0.25.0"
+strum_macros = "0.25.1"
 wgpu = { version = "0.16", features = ["spirv", "vulkan-portability"] }
 
 [build-dependencies]
-spirv-builder = "0.7.0"
+spirv-builder = "0.8.0"
 
 [profile.release]
 lto = "thin"

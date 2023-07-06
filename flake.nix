@@ -27,7 +27,7 @@
 
         rustVersion = pkgs.fenix.fromToolchainFile {
           file = ./rust-toolchain.toml;
-          sha256 = "s9/H9SHOZJdYyJsiqT+cMTspY0SzaaF64ydLiTSfDqQ=";
+          sha256 = "MbIq5CSCT5DjO4iLNNERhJ5YPth50hzBE9tUtC/UR3o=";
         };
 
         nativeBuildInputs = [rustVersion pkgs.spirv-tools];
