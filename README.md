@@ -1,3 +1,5 @@
+# Deprecated: use faster OpenCL alternative: https://github.com/averyanalex/yggdrasil-vanity
+
 # Ygglkan
 
 Vulkan-based miner for Yggdrasil addresses
